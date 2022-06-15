@@ -325,6 +325,11 @@ void StubRoutines::initialize_final_stubs() {
 
   MACOS_AARCH64_ONLY(os::current_thread_enable_wx(WXExec));
 
+/* TODO: [PAC] thread register issue
+// These tests are conducted during the VM initialization phase and thread
+// register is not assigned yet.
+// We may want to move them to some other site.
+//
 #define TEST_ARRAYCOPY(type)                                                    \
   test_arraycopy_func(          type##_arraycopy(),          sizeof(type));     \
   test_arraycopy_func(          type##_disjoint_arraycopy(), sizeof(type));     \
@@ -378,6 +383,7 @@ void StubRoutines::initialize_final_stubs() {
   TEST_FILL(jint);
 
 #undef TEST_FILL
+*/
 
 #define TEST_COPYRTN(type) \
   test_arraycopy_func(CAST_FROM_FN_PTR(address, Copy::conjoint_##type##s_atomic),  sizeof(type)); \

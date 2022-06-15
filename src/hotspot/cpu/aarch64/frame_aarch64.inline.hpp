@@ -31,6 +31,7 @@
 #include "code/vmreg.inline.hpp"
 #include "interpreter/interpreter.hpp"
 #include "interpreter/oopMapCache.hpp"
+#include "runtime/continuationEntry.inline.hpp"
 #include "runtime/sharedRuntime.hpp"
 #include "pauth_aarch64.hpp"
 
@@ -152,7 +153,17 @@ inline frame::frame(intptr_t* sp, intptr_t* unextended_sp, intptr_t* fp, address
   setup(pc);
 }
 
-inline frame::frame(intptr_t* sp) : frame(sp, sp, *(intptr_t**)(sp - frame::sender_sp_offset), *(address*)(sp - 1)) {}
+inline frame::frame(intptr_t* sp) {
+  intptr_t* unextended_sp = sp;
+  intptr_t* fp = *(intptr_t**)(sp - frame::sender_sp_offset);
+
+  intptr_t* signing_sp = sp - 2;
+  ContinuationEntry* ce = Continuation::get_continuation_entry_for_sp(JavaThread::current(), signing_sp);
+  uint64_t offset = ce == nullptr ? (uint64_t) signing_sp : (uint64_t) signing_sp - (uint64_t) ce;
+  address pc = pauth_strip_verifiable(*(address*)(sp - 1), offset);
+
+  frame(sp, unextended_sp, fp, pc);
+}
 
 inline frame::frame(intptr_t* sp, intptr_t* fp) {
   intptr_t a = intptr_t(sp);
@@ -418,7 +429,10 @@ inline frame frame::sender_for_compiled_frame(RegisterMap* map) const {
 
   // the return_address is always the word on the stack
   // For ROP protection, C1/C2 will have signed the sender_pc, but there is no requirement to authenticate it here.
-  address sender_pc = pauth_strip_verifiable((address) *(l_sender_sp-1), (address) *(l_sender_sp-2));
+  intptr_t* signing_sp = l_sender_sp - 2 ;
+  ContinuationEntry* ce = Continuation::get_continuation_entry_for_sp(map->thread(), signing_sp);
+  uint64_t offset = ce == nullptr ? (uint64_t) signing_sp : (uint64_t) signing_sp - (uint64_t) ce;
+  address sender_pc = pauth_strip_verifiable((address) *(l_sender_sp - 1), offset);
 
   intptr_t** saved_fp_addr = (intptr_t**) (l_sender_sp - frame::sender_sp_offset);
 

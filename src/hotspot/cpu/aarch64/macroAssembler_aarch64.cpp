@@ -5936,21 +5936,21 @@ void MacroAssembler::spin_wait() {
 
 // Stack frame creation/removal
 
-void MacroAssembler::enter(bool strip_ret_addr) {
+void MacroAssembler::enter(bool strip_ret_addr, Register thread) {
   if (strip_ret_addr) {
     // Addresses can only be signed once. If there are multiple nested frames being created
     // in the same function, then the return address needs stripping first.
     strip_return_address();
   }
-  protect_return_address();
+  protect_return_address(thread);
   stp(rfp, lr, Address(pre(sp, -2 * wordSize)));
   mov(rfp, sp);
 }
 
-void MacroAssembler::leave() {
+void MacroAssembler::leave(Register thread) {
   mov(sp, rfp);
   ldp(rfp, lr, Address(post(sp, 2 * wordSize)));
-  authenticate_return_address();
+  authenticate_return_address(thread);
 }
 
 // ROP Protection
@@ -5960,50 +5960,81 @@ void MacroAssembler::leave() {
 // For more details on PAC see pauth_aarch64.hpp.
 
 // Sign the LR. Use during construction of a stack frame, before storing the LR to memory.
-// Uses the FP as the modifier.
+// Uses relative SP as the modifier.
+// Note that relative SP = signing SP - initial SP, where
+//   signing SP is the lowest address of the frame record where LR is saved, and
+//   initial SP is thread->last_continuation()->entry_sp().
+// Note that initial SP is zero for non-virtual thread.
 //
-void MacroAssembler::protect_return_address() {
+void MacroAssembler::protect_return_address(Register thread) {
   if (VM_Version::use_rop_protection()) {
     check_return_address();
-    // The standard convention for C code is to use paciasp, which uses SP as the modifier. This
-    // works because in C code, FP and SP match on function entry. In the JDK, SP and FP may not
-    // match, so instead explicitly use the FP.
-    pacia(lr, rfp);
+    // TODO: [PAC] scratch register issue
+    // We thought it's a usual convention that any MacroAssembler call can
+    // clobber rscratch1 or rscratch2 registers. But we cannot do that here.
+    // Otherwise, a number of JTreg test failures would occur.
+    //
+    // It seems that there exist exception cases, where the liveness of rscratch1
+    // or rscratch2 may cross MacroAssembler calls.
+    // Take the following code snippet as an example.
+    // https://github.com/openjdk/jdk/blob/master/src/hotspot/cpu/aarch64/sharedRuntime_aarch64.cpp#L2936-L2949
+    // We may need revisit all the usages of rscratch1 and rscratch2 to check if
+    // this convention can be guaranteed.
+    //
+    // For now, we turn to spill the register on stack.
+    Register temp_reg = rscratch1;
+    stp(temp_reg, zr, Address(pre(sp, -2 * wordSize)));
+    ldr(temp_reg, Address(thread, JavaThread::cont_entry_offset()));
+    sub(temp_reg, sp, temp_reg);
+    pacia(lr, temp_reg);
+    ldp(temp_reg, zr, Address(post(sp, 2 * wordSize)));
   }
 }
 
 // Sign the return value in the given register. Use before updating the LR in the existing stack
 // frame for the current function.
-// Uses the FP from the start of the function as the modifier - which is stored at the address of
-// the current FP.
+// Uses relative SP as the modifier.
+// Note that signing SP = base + offset.
 //
-void MacroAssembler::protect_return_address(Register return_reg, Register temp_reg) {
+void MacroAssembler::protect_return_address(Register return_reg, Register temp_reg, Register base, int offset) {
   if (VM_Version::use_rop_protection()) {
-    assert(PreserveFramePointer, "PreserveFramePointer must be set for ROP protection");
     check_return_address(return_reg);
-    ldr(temp_reg, Address(rfp));
+    ldr(temp_reg, Address(rthread, JavaThread::cont_entry_offset()));
+    sub(temp_reg, base, temp_reg);
+    add(temp_reg, temp_reg, offset);
     pacia(return_reg, temp_reg);
   }
 }
 
 // Authenticate the LR. Use before function return, after restoring FP and loading LR from memory.
+// Uses relative SP as the modifier.
+// Note that relative SP = signing SP - initial SP, where
+//   signing SP is the lowest address of the frame record where LR is saved, and
+//   initial SP is thread->last_continuation()->entry_sp().
+// Note that initial SP is zero for non-virtual thread.
 //
-void MacroAssembler::authenticate_return_address(Register return_reg) {
+void MacroAssembler::authenticate_return_address(Register thread) {
   if (VM_Version::use_rop_protection()) {
-    autia(return_reg, rfp);
-    check_return_address(return_reg);
+    Register temp_reg = rscratch1;
+    stp(temp_reg, zr, Address(pre(sp, -2 * wordSize)));
+    ldr(temp_reg, Address(thread, JavaThread::cont_entry_offset()));
+    sub(temp_reg, sp, temp_reg);
+    autia(lr, temp_reg);
+    ldp(temp_reg, zr, Address(post(sp, 2 * wordSize)));
+    check_return_address();
   }
 }
 
 // Authenticate the return value in the given register. Use before updating the LR in the existing
 // stack frame for the current function.
-// Uses the FP from the start of the function as the modifier - which is stored at the address of
-// the current FP.
+// Uses relative SP as the modifier.
+// Note that signing SP = base + offset.
 //
-void MacroAssembler::authenticate_return_address(Register return_reg, Register temp_reg) {
+void MacroAssembler::authenticate_return_address(Register return_reg, Register temp_reg, Register base, int offset) {
   if (VM_Version::use_rop_protection()) {
-    assert(PreserveFramePointer, "PreserveFramePointer must be set for ROP protection");
-    ldr(temp_reg, Address(rfp));
+    ldr(temp_reg, Address(rthread, JavaThread::cont_entry_offset()));
+    sub(temp_reg, base, temp_reg);
+    add(temp_reg, temp_reg, offset);
     autia(return_reg, temp_reg);
     check_return_address(return_reg);
   }

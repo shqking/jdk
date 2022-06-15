@@ -229,7 +229,7 @@ class StubGenerator: public StubCodeGenerator {
     address aarch64_entry = __ pc();
 
     // set up frame and move sp to end of save area
-    __ enter();
+    __ enter(false, c_rarg7);
     __ sub(sp, rfp, -sp_after_call_off * wordSize);
 
     // save register parameters and Java scratch/global registers
@@ -372,7 +372,7 @@ class StubGenerator: public StubCodeGenerator {
     __ ldp(c_rarg6, c_rarg7,  parameter_size);
 
     // leave frame and return to caller
-    __ leave();
+    __ leave(c_rarg7);
     __ ret(lr);
 
     // handle return types different from T_INT
@@ -6951,6 +6951,7 @@ class StubGenerator: public StubCodeGenerator {
 
     if (return_barrier_exception) {
       __ ldr(c_rarg1, Address(rfp, wordSize)); // return address
+      __ authenticate_return_address(c_rarg1, rscratch1, rfp);
       __ verify_oop(r0);
       __ mov(r19, r0); // save return value contaning the exception oop in callee-saved R19
 

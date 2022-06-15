@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2020, 2022, Oracle and/or its affiliates. All rights reserved.
- * Copyright (c) 2020, 2022, Arm Limited. All rights reserved.
+ * Copyright (c) 2020, 2023, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2020, 2023, Arm Limited. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -255,9 +255,12 @@ public class AArch64TestAssembler extends TestAssembler {
         // Must be patchable by NativeJump::patch_verified_entry
         emitNop();
         if (config.ropProtection) {
-            code.emitInt(0xdac103be);  // pacia x30, x29
+            code.emitInt(0xf9426388);  // ldr x8, [x28, #1216]
+            code.emitInt(0xcb2863e8);  // sub x8, sp, x8
+            code.emitInt(0xd1004108);  // sub x8, x8, #16
+            code.emitInt(0xdac1011e);  // pacia x30, x8
         }
-        code.emitInt(0xa9be7bfd);  // stp x29, x30, [sp, #-32]!
+        code.emitInt(0xa9bf7bfd);  // stp x29, x30, [sp, #-16]!
         code.emitInt(0x910003fd);  // mov x29, sp
 
         setDeoptRescueSlot(newStackSlot(AArch64Kind.QWORD));
@@ -469,9 +472,12 @@ public class AArch64TestAssembler extends TestAssembler {
     public void emitIntRet(Register a) {
         emitMov(AArch64.r0, a);
         code.emitInt(0x910003bf);  // mov sp, x29
-        code.emitInt(0xa8c27bfd);  // ldp x29, x30, [sp], #32
+        code.emitInt(0xa8c17bfd);  // ldp x29, x30, [sp], #16
         if (config.ropProtection) {
-            code.emitInt(0xdac113be);  // autia x30, x29
+            code.emitInt(0xf9426388);  // ldr x8, [x28, #1216]
+            code.emitInt(0xcb2863e8);  // sub x8, sp, x8
+            code.emitInt(0xd1004108);  // sub x8, x8, #16
+            code.emitInt(0xdac1111e);  // autia x30, x8
         }
         code.emitInt(0xd65f03c0);  // ret
     }
@@ -480,9 +486,12 @@ public class AArch64TestAssembler extends TestAssembler {
     public void emitFloatRet(Register a) {
         assert a == AArch64.v0 : "Unimplemented move " + a;
         code.emitInt(0x910003bf);  // mov sp, x29
-        code.emitInt(0xa8c27bfd);  // ldp x29, x30, [sp], #32
+        code.emitInt(0xa8c17bfd);  // ldp x29, x30, [sp], #16
         if (config.ropProtection) {
-            code.emitInt(0xdac113be);  // autia x30, x29
+            code.emitInt(0xf9426388);  // ldr x8, [x28, #1216]
+            code.emitInt(0xcb2863e8);  // sub x8, sp, x8
+            code.emitInt(0xd1004108);  // sub x8, x8, #16
+            code.emitInt(0xdac1111e);  // autia x30, x8
         }
         code.emitInt(0xd65f03c0);  // ret
     }

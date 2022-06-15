@@ -139,8 +139,11 @@ bool frame::safe_for_sender(JavaThread *thread) {
       sender_sp = (intptr_t*) addr_at(sender_sp_offset);
       sender_unextended_sp = (intptr_t*) this->fp()[interpreter_frame_sender_sp_offset];
       saved_fp = (intptr_t*) this->fp()[link_offset];
-      sender_pc = pauth_strip_verifiable((address) this->fp()[return_addr_offset], (address)saved_fp);
 
+      intptr_t* signing_sp = this->fp();
+      ContinuationEntry* ce = Continuation::get_continuation_entry_for_sp(thread, signing_sp);
+      uint64_t offset = ce == nullptr ? (uint64_t) signing_sp : (uint64_t) signing_sp - (uint64_t) ce;
+      sender_pc = pauth_strip_verifiable((address) this->fp()[return_addr_offset], offset);
     } else {
       // must be some sort of compiled/runtime frame
       // fp does not have to be safe (although it could be check for c1?)
@@ -158,7 +161,11 @@ bool frame::safe_for_sender(JavaThread *thread) {
       sender_unextended_sp = sender_sp;
       // Note: frame::sender_sp_offset is only valid for compiled frame
       saved_fp = (intptr_t*) *(sender_sp - frame::sender_sp_offset);
-      sender_pc = pauth_strip_verifiable((address) *(sender_sp-1), (address)saved_fp);
+
+      intptr_t* signing_sp = sender_sp - 2;
+      ContinuationEntry* ce = Continuation::get_continuation_entry_for_sp(thread, signing_sp);
+      uint64_t offset = ce == nullptr ? (uint64_t) signing_sp : (uint64_t) signing_sp - (uint64_t) ce;
+      sender_pc = pauth_strip_verifiable((address) *(sender_sp - 1), offset);
     }
 
     if (Continuation::is_return_barrier_entry(sender_pc)) {
@@ -276,9 +283,12 @@ bool frame::safe_for_sender(JavaThread *thread) {
 void frame::patch_pc(Thread* thread, address pc) {
   assert(_cb == CodeCache::find_blob(pc), "unexpected pc");
   address* pc_addr = &(((address*) sp())[-1]);
-  address signing_sp = (((address*) sp())[-2]);
-  address signed_pc = pauth_sign_return_address(pc, (address)signing_sp);
-  address pc_old = pauth_strip_verifiable(*pc_addr, (address)signing_sp);
+
+  intptr_t* signing_sp = sp() - 2;
+  ContinuationEntry* ce = Continuation::get_continuation_entry_for_sp(JavaThread::cast(thread), signing_sp);
+  uint64_t offset = ce == nullptr ? (uint64_t) signing_sp : (uint64_t) signing_sp - (uint64_t) ce;
+  address signed_pc = pauth_sign_return_address(pc, offset);
+  address pc_old = pauth_strip_verifiable(*pc_addr, offset);
 
   if (TracePcPatching) {
     tty->print("patch_pc at address " INTPTR_FORMAT " [" INTPTR_FORMAT " -> " INTPTR_FORMAT "]",
@@ -473,7 +483,10 @@ frame frame::sender_for_interpreter_frame(RegisterMap* map) const {
 #endif // COMPILER2_OR_JVMCI
 
   // For ROP protection, Interpreter will have signed the sender_pc, but there is no requirement to authenticate it here.
-  address sender_pc = pauth_strip_verifiable(sender_pc_maybe_signed(), (address)link());
+  intptr_t* signing_sp = this->fp();
+  ContinuationEntry* ce = Continuation::get_continuation_entry_for_sp(map->thread(), signing_sp);
+  uint64_t offset = ce == nullptr ? (uint64_t) signing_sp : (uint64_t) signing_sp - (uint64_t) ce;
+  address sender_pc = pauth_strip_verifiable(sender_pc_maybe_signed(), offset);
 
   if (Continuation::is_return_barrier_entry(sender_pc)) {
     if (map->walk_cont()) { // about to walk into an h-stack
