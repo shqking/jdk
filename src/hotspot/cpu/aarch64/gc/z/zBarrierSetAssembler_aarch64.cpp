@@ -66,7 +66,7 @@ private:
   void save() {
     MacroAssembler* masm = _masm;
 
-    __ enter(true /* strip_ret_addr */);
+    __ enter(true  /* strip_ret_addr */, false /* clobber_rscratch2 */);
     if (_result != noreg) {
       __ push_call_clobbered_registers_except(RegSet::of(_result));
     } else {
@@ -142,6 +142,11 @@ void ZBarrierSetAssembler::load_at(MacroAssembler* masm,
   __ br(Assembler::EQ, uncolor);
 
   {
+    // [rscratch2]
+    // def: tmp2 can be rscratch2.
+    //      See bs->load_at().
+    // clobber: the ctor invokes enter() at line 69.
+    // use: line 156.
     // Call VM
     ZRuntimeCallSpill rcs(masm, dst);
 
@@ -391,7 +396,7 @@ private:
   void save() {
     MacroAssembler* masm = _masm;
 
-    __ enter(true /* strip_ret_addr */);
+    __ enter(true  /* strip_ret_addr */, false /* clobber_rscratch2 */);
     if (_result != noreg) {
       __ push(__ call_clobbered_gp_registers() - RegSet::of(_result), sp);
     } else {
@@ -424,7 +429,7 @@ private:
     } else {
       __ pop(__ call_clobbered_gp_registers(), sp);
     }
-    __ leave();
+    __ leave(false /* clobber_rscratch2 */);
   }
 
 public:
@@ -471,6 +476,12 @@ static void copy_load_barrier(MacroAssembler* masm,
   __ br(Assembler::EQ, done);
 
   {
+    // [rscratch2]
+    // def: ref can be rscratch2
+    // clobber: the ctor will invoke the enter() at line 399.
+    //          the dtor will invoke the leave() at line 432.
+    // use: after ctor, line 491.
+    //      after dtor, line 498.
     // Call VM
     ZCopyRuntimeCallSpill rcs(masm, ref);
 

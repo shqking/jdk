@@ -712,13 +712,13 @@ public:
   void post_call_nop();
 
   // Stack frame creation/removal
-  void enter(bool strip_ret_addr = false);
-  void leave();
+  void enter(bool strip_ret_addr = false, bool clobber_rscratch2 = true);
+  void leave(bool clobber_rscratch2 = true);
 
   // ROP Protection
-  void protect_return_address();
+  void protect_return_address(bool clobber_rscratch2 = true);
   void protect_return_address(Register return_reg, Register temp_reg);
-  void authenticate_return_address(Register return_reg = lr);
+  void authenticate_return_address(Register return_reg = lr, bool clobber_rscratch2 = true);
   void authenticate_return_address(Register return_reg, Register temp_reg);
   void strip_return_address();
   void check_return_address(Register return_reg=lr) PRODUCT_RETURN;

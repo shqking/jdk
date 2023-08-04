@@ -87,6 +87,16 @@ void RangeCheckStub::emit_code(LIR_Assembler* ce) {
     __ mov(rscratch2, _array->as_pointer_register());
     stub_id = Runtime1::throw_range_check_failed_id;
   }
+
+  // [rscratch2]
+  // def: See line 87.
+  // clobber: enter() is invoked in the ctor of stub frame.
+  // use: rscratch1/2 will be passed as arguments to some exception stubs.
+  //      See generate_exception_throw().
+  //
+  // Fix: don't clobber rscratch2 for stub frames.
+  // See the update in StubAssembler::prologue().
+  // TODO: loose the constraint. try to clobber in other stub frames besides exception stubs.
   __ lea(lr, RuntimeAddress(Runtime1::entry_for(stub_id)));
   __ blr(lr);
   ce->add_call_info_here(_info);

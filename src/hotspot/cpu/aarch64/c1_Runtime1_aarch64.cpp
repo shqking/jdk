@@ -181,7 +181,9 @@ class StubFrame: public StackObj {
 
 void StubAssembler::prologue(const char* name, bool must_gc_arguments) {
   set_info(name, must_gc_arguments);
-  enter();
+  // [rscratch2]
+  // It's the fix for issues at file c1_CodeStubs_aarch64.cpp
+  enter(false /* strip_ret_addr */, false /* clobber_rscratch2 */);
 }
 
 void StubAssembler::epilogue() {
@@ -342,6 +344,7 @@ void Runtime1::initialize_pd() {
 // target: the entry point of the method that creates and posts the exception oop
 // has_argument: true if the exception needs arguments (passed in rscratch1 and rscratch2)
 
+// NOTE: rscratch1 and rscratch2 are passed as arg
 OopMapSet* Runtime1::generate_exception_throw(StubAssembler* sasm, address target, bool has_argument) {
   // make a frame and preserve the caller's caller-save registers
   OopMap* oop_map = save_live_registers(sasm);

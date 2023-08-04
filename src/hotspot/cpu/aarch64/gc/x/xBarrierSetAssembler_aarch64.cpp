@@ -78,7 +78,11 @@ void XBarrierSetAssembler::load_at(MacroAssembler* masm,
   __ tst(dst, rscratch1);
   __ br(Assembler::EQ, done);
 
-  __ enter(/*strip_ret_addr*/true);
+  // [rscratch2]
+  // def: line 74
+  // clobber: this enter()
+  // use: line 92
+  __ enter(true  /* strip_ret_addr */, false /* clobber_rscratch2 */);
 
   __ push_call_clobbered_registers_except(RegSet::of(dst));
 

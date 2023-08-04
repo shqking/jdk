@@ -995,6 +995,7 @@ address MacroAssembler::ic_call(address entry, jint method_index) {
   // address const_ptr = long_constant((jlong)Universe::non_oop_word());
   // uintptr_t offset;
   // ldr_constant(rscratch2, const_ptr);
+  // TODO: where is rscratch2 used?
   movptr(rscratch2, (uintptr_t)Universe::non_oop_word());
   return trampoline_call(Address(entry, rh));
 }
@@ -1483,7 +1484,21 @@ void MacroAssembler::_verify_oop(Register reg, const char* s, const char* file, 
   BLOCK_COMMENT("verify_oop {");
 
   strip_return_address(); // This might happen within a stack frame.
-  protect_return_address();
+  protect_return_address(false /* clobber_rscratch2 */);
+  // [rscratch2]
+  // this function is used in many sites.
+  // we can see that rscratch1/2 are saved/restored on the stack here.
+  // similarly, we should not clobber rscratch2 in the protect_return_address()
+  // as well.
+  //
+  // Example-1: verify_oop_array in file stubGenerator_aarch64.cpp
+  // def: rscratch2 is set before entering this function.
+  //      See line 1439 in file stubGenerator_aarch64.cpp
+  // clobber: this protect_return_address() and
+  //          the later authenticate_return_address()
+  // use: will be used after this function.
+  //      See line 1450 in file stubGenerator_aarch64.cpp
+  //
   stp(r0, rscratch1, Address(pre(sp, -2 * wordSize)));
   stp(rscratch2, lr, Address(pre(sp, -2 * wordSize)));
 
@@ -1497,7 +1512,8 @@ void MacroAssembler::_verify_oop(Register reg, const char* s, const char* file, 
 
   ldp(rscratch2, lr, Address(post(sp, 2 * wordSize)));
   ldp(r0, rscratch1, Address(post(sp, 2 * wordSize)));
-  authenticate_return_address();
+  // [rscratch2]
+  authenticate_return_address(lr, false /* clobber_rscratch2 */);
 
   BLOCK_COMMENT("} verify_oop");
 }
@@ -1515,7 +1531,9 @@ void MacroAssembler::_verify_oop_addr(Address addr, const char* s, const char* f
   BLOCK_COMMENT("verify_oop_addr {");
 
   strip_return_address(); // This might happen within a stack frame.
-  protect_return_address();
+  // [rscratch2]
+  // similar to _verify_oop().
+  protect_return_address(false /* clobber_rscratch2 */);
   stp(r0, rscratch1, Address(pre(sp, -2 * wordSize)));
   stp(rscratch2, lr, Address(pre(sp, -2 * wordSize)));
 
@@ -1536,7 +1554,9 @@ void MacroAssembler::_verify_oop_addr(Address addr, const char* s, const char* f
 
   ldp(rscratch2, lr, Address(post(sp, 2 * wordSize)));
   ldp(r0, rscratch1, Address(post(sp, 2 * wordSize)));
-  authenticate_return_address();
+  // [rscratch2]
+  // similar to _verify_oop().
+  authenticate_return_address(lr, false /* clobber_rscratch2 */);
 
   BLOCK_COMMENT("} verify_oop_addr");
 }
@@ -4785,6 +4805,7 @@ void MacroAssembler::verify_tlab() {
   if (UseTLAB && VerifyOops) {
     Label next, ok;
 
+    // TODO: this assembler is dead code?
     stp(rscratch2, rscratch1, Address(pre(sp, -16)));
 
     ldr(rscratch2, Address(rthread, in_bytes(JavaThread::tlab_top_offset())));
@@ -5939,21 +5960,21 @@ void MacroAssembler::spin_wait() {
 
 // Stack frame creation/removal
 
-void MacroAssembler::enter(bool strip_ret_addr) {
+void MacroAssembler::enter(bool strip_ret_addr, bool clobber_rscratch2) {
   if (strip_ret_addr) {
     // Addresses can only be signed once. If there are multiple nested frames being created
     // in the same function, then the return address needs stripping first.
     strip_return_address();
   }
-  protect_return_address();
+  protect_return_address(clobber_rscratch2);
   stp(rfp, lr, Address(pre(sp, -2 * wordSize)));
   mov(rfp, sp);
 }
 
-void MacroAssembler::leave() {
+void MacroAssembler::leave(bool clobber_rscratch2) {
   mov(sp, rfp);
   ldp(rfp, lr, Address(post(sp, 2 * wordSize)));
-  authenticate_return_address();
+  authenticate_return_address(lr, clobber_rscratch2);
 }
 
 // ROP Protection
@@ -5965,7 +5986,11 @@ void MacroAssembler::leave() {
 // Sign the LR. Use during construction of a stack frame, before storing the LR to memory.
 // Uses the FP as the modifier.
 //
-void MacroAssembler::protect_return_address() {
+void MacroAssembler::protect_return_address(bool clobber_rscratch2) {
+  if (clobber_rscratch2) {
+    mov(rscratch2, 42);
+  }
+
   if (VM_Version::use_rop_protection()) {
     check_return_address();
     // The standard convention for C code is to use paciasp, which uses SP as the modifier. This
@@ -5991,7 +6016,11 @@ void MacroAssembler::protect_return_address(Register return_reg, Register temp_r
 
 // Authenticate the LR. Use before function return, after restoring FP and loading LR from memory.
 //
-void MacroAssembler::authenticate_return_address(Register return_reg) {
+void MacroAssembler::authenticate_return_address(Register return_reg, bool clobber_rscratch2) {
+  if (clobber_rscratch2) {
+    mov(rscratch2, 42);
+  }
+
   if (VM_Version::use_rop_protection()) {
     autia(return_reg, rfp);
     check_return_address(return_reg);
